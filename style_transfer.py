@@ -7,8 +7,11 @@ import tensorflow as tf
 import numpy as np
 import time
 
+#NB make it so the initial image doesn't have to be the content image
+
 def get_img(name):
     image = cv2.imread('images/' + name).astype(np.float32)
+    image = image/255
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     #NB do preprocessing but see if you can get it to just take raw unprocessed images
@@ -63,7 +66,7 @@ def get_variation_loss(img):
 
 def get_features(model, content_img, style_img):
 
-    stacked = np.concatenate([content_img, style_img], axis=0)
+    stacked = tf.concat([content_img, style_img], axis=0)
     output = model(stacked)
 
 
@@ -74,7 +77,7 @@ def get_features(model, content_img, style_img):
 
 def get_loss(model, loss_weights, init_img, style_features, content_features):
 
-    style_weight, content_weight, variation_weight = loss_weights
+    content_weight, style_weight, variation_weight = loss_weights
     gram_style_features = [gram_matrix(feature) for feature in style_features]
 
     output = model(init_img)
@@ -112,21 +115,20 @@ def get_gradient(model, loss_weights, init_img, style_features, content_features
     return tape.gradient(total_loss, init_img), all_loss
 
 
-def transfer_style(content_img, style_img, n_iter=2000, loss_weights=(1e3, 1e-1, 1), display_num=100):
+def transfer_style(content_img, style_img, n_iter=1500, loss_weights=(1e3, 1e-4, 1e-3), display_num=10):
     model = get_intermediate_layers()
 
     style_features, content_features = get_features(model, content_img, style_img)
 
     #NB change it to be able to predefine and tweak optimiser outside of this
-    optimizer = tf.train.AdamOptimizer(learning_rate=10)
+    optimizer = tf.train.AdamOptimizer(learning_rate=0.05)
 
-    i = 0
     best_loss = float('inf')
     best_img = None
 
     #showing pictures
     plt.figure(figsize=(15,12))
-    n_rows = (n_iter/display_num)/5
+    n_rows = n_iter/(display_num*5)
     start_time = time.time()
     global_start = time.time()
 
@@ -143,19 +145,22 @@ def transfer_style(content_img, style_img, n_iter=2000, loss_weights=(1e3, 1e-1,
             best_loss = total_loss
             best_img = content_img
 
-        if i%display_num == 0:
+        if i % display_num == 0:
             print('Iteration: {}'.format(i + 1))
             print('Loss: {}'.format(total_loss))
             print('Style Loss: {}'.format(style_loss))
             print('Content Loss: {}'.format(content_loss))
             print('TV loss: {}'.format(variation_loss))
-            print('Time: {}'.format(start_time - end_time))
+            print('Time: {}'.format(end_time - start_time))
 
-            plt.subplot(num_rows, 5, iter_count/display_num)
-            plt.imshow(content_img)
+            plt.subplot(n_rows, 5, (i/display_num)+1)
+            plottable = tf.squeeze(content_img, axis=0)
+            plottable = plottable.numpy()
+            print(plottable.shape)
+            # plottable = np.asarray(plottable)
+            plt.imshow(plottable)
             plt.title('Iteration: {}'.format(i))
 
-            i += 1
             start_time = time.time()
 
     plt.show()
@@ -170,29 +175,26 @@ def transfer_style(content_img, style_img, n_iter=2000, loss_weights=(1e3, 1e-1,
 tf.enable_eager_execution()
 print("Eager execution: {}".format(tf.executing_eagerly()))
 
-content_img = get_img('Green_Sea_Turtle_grazing_seagrass.jpg')
+content_name = 'Green_Sea_Turtle_grazing_seagrass.jpg'
+content_img = get_img(content_name)
 
-style_img = get_img('The_Great_Wave.jpg')
+style_name = 'The_Great_Wave.jpg'
+style_img = get_img(style_name)
 
+#preview content and style images
+plt.subplot(121)
+plt.imshow(content_img)
+plt.subplot(122)
+plt.imshow(style_img)
+plt.show()
 
 #need to make the images the right form for inputting into conv2D i.e. (batch, rows, columns, channels)
 #content_img = content_img[np.newaxis, :] this form also works
 content_img = tf.stack([content_img])
 style_img = tf.stack([style_img])
 
-
-# #plot content and style images
-# plt.figure(figsize = (12,8))
-#
-# plt.subplot(121)
-# plt.title('Content')
-# plt.imshow(content_img)
-#
-# plt.subplot(122)
-# plt.title('Style')
-# plt.imshow(style_img)
-#
-# plt.show()
+content_img = tf.contrib.eager.Variable(content_img, dtype=tf.float32)
+style_img = tf.contrib.eager.Variable(style_img, dtype=tf.float32)
 
 ################################################################################
 #running it
@@ -211,9 +213,11 @@ n_content_layers = len(content_layers)
 n_style_layers = len(style_layers)
 
 
-best_img, best_loss = transfer_style(content_img, style_img, n_iter=2000, loss_weights=(1e3, 1e-1, 1), display_num=100)
+best_img, best_loss = transfer_style(content_img, style_img, n_iter=10, display_num=2)
 
 
 plt.title('Loss: {}'.format(best_loss))
 plt.imshow(best_img)
 plt.show()
+
+# cv2.imwrite('created/{} with {}.jpg'.format(content_name, style_name), best_img)
