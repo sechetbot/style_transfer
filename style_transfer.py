@@ -100,10 +100,10 @@ def get_loss(model, loss_weights, init_img, style_features, content_features):
 
     style_loss *= style_weight
     content_loss *= content_weight
-    final_variation_loss = variation_weight * get_variation_loss(init_img)
+    variation_loss = variation_weight * get_variation_loss(init_img)
 
-    total_loss = style_loss + content_loss + final_variation_loss
-    all_loss = (total_loss, style_loss, content_loss, final_variation_loss)
+    total_loss = style_loss + content_loss + variation_loss
+    all_loss = (total_loss, style_loss, content_loss, variation_loss)
     return all_loss
 
 
@@ -112,8 +112,13 @@ def get_gradient(model, loss_weights, init_img, style_features, content_features
         tape.watch(init_img)
         all_loss = get_loss(model, loss_weights, init_img, style_features, content_features)
         total_loss = all_loss[0]
-    return tape.gradient(total_loss, init_img), all_loss
+    gradient = tape.gradient(total_loss, init_img)
 
+    #NB what is the best replacement value for the nans?
+    #find nans and replace them with 1
+    gradient = np.nan_to_num(gradient)
+
+    return gradient, all_loss
 
 def transfer_style(content_img, style_img, n_iter=1500, loss_weights=(1e3, 1e-4, 1e-3), display_num=10):
     model = get_intermediate_layers()
@@ -156,7 +161,6 @@ def transfer_style(content_img, style_img, n_iter=1500, loss_weights=(1e3, 1e-4,
             plt.subplot(n_rows, 5, (i/display_num)+1)
             plottable = tf.squeeze(content_img, axis=0)
             plottable = plottable.numpy()
-            print(plottable.shape)
             # plottable = np.asarray(plottable)
             plt.imshow(plottable)
             plt.title('Iteration: {}'.format(i))
@@ -213,7 +217,7 @@ n_content_layers = len(content_layers)
 n_style_layers = len(style_layers)
 
 
-best_img, best_loss = transfer_style(content_img, style_img, n_iter=10, display_num=2)
+best_img, best_loss = transfer_style(content_img, style_img, n_iter=500, display_num=50)
 
 
 plt.title('Loss: {}'.format(best_loss))
