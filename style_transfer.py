@@ -15,9 +15,9 @@ def get_img(name):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     #NB do preprocessing but see if you can get it to just take raw unprocessed images
-    #NB change the number of pixels to resize to once everything is working, 400 is for time reasons
+    #NB change the number of pixels to resize to once everything is working, 200 is for speed reasons
 
-    resized = cv2.resize(image, (400,400), interpolation = cv2.INTER_AREA)
+    resized = cv2.resize(image, (200,200), interpolation = cv2.INTER_AREA)
 
     return resized
 
@@ -25,7 +25,8 @@ def get_img(name):
 def get_intermediate_layers():
     #uses the VGG19 network, returns intermediate layers that 'understand' content and style
 
-    VGG19 = tf.keras.applications.vgg19.VGG19(include_top=False, input_shape=(400,400,3), weights='imagenet')
+    #NB make sure input shape is the same as the preprocessed images
+    VGG19 = tf.keras.applications.vgg19.VGG19(include_top=False, input_shape=(200,200,3), weights='imagenet')
     VGG19.trainable = False
 
     style = [VGG19.get_layer(layer).output for layer in style_layers]
@@ -115,25 +116,25 @@ def get_gradient(model, loss_weights, init_img, style_features, content_features
     gradient = tape.gradient(total_loss, init_img)
 
     #NB what is the best replacement value for the nans?
-    #find nans and replace them with 1
-    gradient = np.nan_to_num(gradient)
+    #find nans and replace them with 0
+    gradient = np.nan_to_num(gradient) #NB consider replacing nans with the mean of the array of the array if replacing with 0 propagates the 0 through giving bad results
 
     return gradient, all_loss
 
-def transfer_style(content_img, style_img, n_iter=1500, loss_weights=(1e3, 1e-4, 1e-3), display_num=10):
+def transfer_style(content_img, style_img, n_iter=1500, loss_weights=(7.5, 100, 10), display_num=10):
     model = get_intermediate_layers()
 
     style_features, content_features = get_features(model, content_img, style_img)
 
     #NB change it to be able to predefine and tweak optimiser outside of this
-    optimizer = tf.train.AdamOptimizer(learning_rate=0.05)
+    optimizer = tf.train.AdamOptimizer(learning_rate=10)
 
     best_loss = float('inf')
     best_img = None
 
     #showing pictures
     plt.figure(figsize=(15,12))
-    n_rows = n_iter/(display_num*5)
+    n_rows = np.ceil(n_iter/(display_num*5))
     start_time = time.time()
     global_start = time.time()
 
@@ -142,6 +143,8 @@ def transfer_style(content_img, style_img, n_iter=1500, loss_weights=(1e3, 1e-4,
         total_loss, style_loss, content_loss, variation_loss = all_loss[0], all_loss[1], all_loss[2], all_loss[3]
 
         optimizer.apply_gradients([(gradient, content_img)])
+        content_img = tf.clip_by_value(content_img, 0, 1) #NB this is a temporary fix, the pixels run away to 0 and 1, consider clipping to a mean range
+        content_img = tf.contrib.eager.Variable(content_img, dtype=tf.float32)
 
         end_time = time.time()
 
@@ -157,11 +160,11 @@ def transfer_style(content_img, style_img, n_iter=1500, loss_weights=(1e3, 1e-4,
             print('Content Loss: {}'.format(content_loss))
             print('TV loss: {}'.format(variation_loss))
             print('Time: {}'.format(end_time - start_time))
+            print()
 
             plt.subplot(n_rows, 5, (i/display_num)+1)
             plottable = tf.squeeze(content_img, axis=0)
             plottable = plottable.numpy()
-            # plottable = np.asarray(plottable)
             plt.imshow(plottable)
             plt.title('Iteration: {}'.format(i))
 
@@ -198,7 +201,7 @@ content_img = tf.stack([content_img])
 style_img = tf.stack([style_img])
 
 content_img = tf.contrib.eager.Variable(content_img, dtype=tf.float32)
-style_img = tf.contrib.eager.Variable(style_img, dtype=tf.float32)
+style_img = tf.contrib.eager.Variable(style_img, dtype=tf.float32) #check if it's necessary to make style image a variable, I don't think so
 
 ################################################################################
 #running it
@@ -213,15 +216,24 @@ style_layers = ['block1_conv1',
                 'block4_conv1',
                 'block5_conv1']
 
+
 n_content_layers = len(content_layers)
 n_style_layers = len(style_layers)
 
+weights=(100 ,1, 1)
 
-best_img, best_loss = transfer_style(content_img, style_img, n_iter=500, display_num=50)
+best_img, best_loss = transfer_style(content_img, style_img, loss_weights=weights, n_iter=400, display_num=50)
+best_img = tf.squeeze(best_img, axis=0)
+best_img = tf.clip_by_value(best_img, 0, 1)
 
+
+#display and save best image
 
 plt.title('Loss: {}'.format(best_loss))
 plt.imshow(best_img)
 plt.show()
 
+#have to multiply by 255 to get correct range for imwrite
+best_img = best_img*255
+cv2.imwrite('created/CSV loss: {}.jpg'.format(weights), best_img.numpy()) #temporary until I get the whole thing fixed, then go back to the other one
 # cv2.imwrite('created/{} with {}.jpg'.format(content_name, style_name), best_img)
