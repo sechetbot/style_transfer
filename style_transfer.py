@@ -11,12 +11,15 @@ import time
 
 def get_img(name):
     image = cv2.imread('images/' + name).astype(np.float32)
-    image = image/255
+    # image = image/255
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     #NB do preprocessing but see if you can get it to just take raw unprocessed images
-    #NB change the number of pixels to resize to once everything is working, 200 is for speed reasons
+    image /= 127.5
+    image -= 1
+    #NB does the preprocessing even work? if so, go through and postprocess where needed
 
+    #NB change the number of pixels to resize to once everything is working, 150 is for speed reasons
     resized = cv2.resize(image, (200,200), interpolation = cv2.INTER_AREA)
 
     return resized
@@ -127,7 +130,7 @@ def transfer_style(content_img, style_img, n_iter=1500, loss_weights=(7.5, 100, 
     style_features, content_features = get_features(model, content_img, style_img)
 
     #NB change it to be able to predefine and tweak optimiser outside of this
-    optimizer = tf.train.AdamOptimizer(learning_rate=10)
+    optimizer = tf.train.AdamOptimizer(learning_rate=1e-1)
 
     best_loss = float('inf')
     best_img = None
@@ -143,7 +146,7 @@ def transfer_style(content_img, style_img, n_iter=1500, loss_weights=(7.5, 100, 
         total_loss, style_loss, content_loss, variation_loss = all_loss[0], all_loss[1], all_loss[2], all_loss[3]
 
         optimizer.apply_gradients([(gradient, content_img)])
-        content_img = tf.clip_by_value(content_img, 0, 1) #NB this is a temporary fix, the pixels run away to 0 and 1, consider clipping to a mean range
+        # content_img = tf.clip_by_value(content_img, -0.7, 0.7) #NB this is a temporary fix, the pixels run away to 0 and 1, consider clipping to a mean range
         content_img = tf.contrib.eager.Variable(content_img, dtype=tf.float32)
 
         end_time = time.time()
@@ -164,7 +167,8 @@ def transfer_style(content_img, style_img, n_iter=1500, loss_weights=(7.5, 100, 
 
             plt.subplot(n_rows, 5, (i/display_num)+1)
             plottable = tf.squeeze(content_img, axis=0)
-            plottable = plottable.numpy()
+            plottable = plottable.numpy() + 1
+            plottable *= 0.5
             plt.imshow(plottable)
             plt.title('Iteration: {}'.format(i))
 
@@ -190,9 +194,9 @@ style_img = get_img(style_name)
 
 #preview content and style images
 plt.subplot(121)
-plt.imshow(content_img)
+plt.imshow((content_img+1)*0.5)
 plt.subplot(122)
-plt.imshow(style_img)
+plt.imshow((style_img+1)*0.5)
 plt.show()
 
 #need to make the images the right form for inputting into conv2D i.e. (batch, rows, columns, channels)
@@ -220,20 +224,27 @@ style_layers = ['block1_conv1',
 n_content_layers = len(content_layers)
 n_style_layers = len(style_layers)
 
-weights=(100 ,1, 1)
+weights=(1e10, 1, 1)
 
 best_img, best_loss = transfer_style(content_img, style_img, loss_weights=weights, n_iter=400, display_num=50)
 best_img = tf.squeeze(best_img, axis=0)
+best_img = best_img.numpy()+1
+best_img *= 0.5
+
+
+
 best_img = tf.clip_by_value(best_img, 0, 1)
 
-
 #display and save best image
-
 plt.title('Loss: {}'.format(best_loss))
 plt.imshow(best_img)
 plt.show()
 
+#cv2 writes in BGR so image colours need to be flipped
+best_img = cv2.cvtColor(best_img.numpy(), cv2.COLOR_BGR2RGB)
+
 #have to multiply by 255 to get correct range for imwrite
 best_img = best_img*255
-cv2.imwrite('created/CSV loss: {}.jpg'.format(weights), best_img.numpy()) #temporary until I get the whole thing fixed, then go back to the other one
+cv2.imwrite('5 1e10 p.jpg', best_img) #temporary until I get the whole thing fixed, then go back to the other one
+# cv2.imwrite('created/CSV loss: {}.jpg'.format(weights), best_img.numpy()) #temporary until I get the whole thing fixed, then go back to the other one
 # cv2.imwrite('created/{} with {}.jpg'.format(content_name, style_name), best_img)
